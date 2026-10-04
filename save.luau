@@ -3701,7 +3701,7 @@ local function synsaveinstance(...)
 		ShutdownWhenDone = false,
 		AntiIdle = true,
 		Anonymous = false,
-		ReadMe = true,
+		ReadMe = false,
 		FilePath = false,
 		AvoidFileOverwrite = true,
 		Object = false,
@@ -4522,9 +4522,38 @@ local function synsaveinstance(...)
 		end
 		return true
 	end
+	-- Remove leading exporter/decompiler comments without touching executable source.
+	local function stripSourceHeader(source)
+		local position = 1
+		local directives = {}
+		while true do
+			local _, whitespaceEnd = string.find(source, "^%s*", position)
+			position = (whitespaceEnd or position - 1) + 1
+			if string.sub(source, position, position + 1) ~= "--" then
+				break
+			end
+			local rest = string.sub(source, position + 2)
+			local equals = string.match(rest, "^%[(=*)%[")
+			if equals then
+				local _, commentEnd = string.find(source, "]" .. equals .. "]", position + 4 + #equals, true)
+				if not commentEnd then
+					break
+				end
+				position = commentEnd + 1
+			else
+				local newline = string.find(source, "\n", position, true)
+				if string.sub(rest, 1, 1) == "!" then
+					table.insert(directives, string.sub(source, position, (newline or #source + 1) - 1) .. "\n")
+				end
+				position = newline and newline + 1 or #source + 1
+			end
+		end
+		return table.concat(directives) .. string.sub(source, position)
+	end
+
 	local function sourceFor(instance, ldIgnoring)
 		if ldIgnoring then
-			return "-- Ignored"
+			return ""
 		end
 		local value
 		local should_decompile = true
@@ -4599,11 +4628,7 @@ local function synsaveinstance(...)
 			end
 		end
 
-		value = "-- Saved by UniversalSynSaveInstance (Join to Copy Games) https://discord.gg/wx4ThpAsmw\n\n"
-			.. (hasLinkedSource and "-- Original Source: https://assetdelivery.roblox.com/v1/asset/?" .. (LinkedSource_type or "id") .. "=" .. (LinkedSource or LinkedSource_Url) .. "\n\n" or "")
-			.. value
-
-		return value
+		return stripSourceHeader(value)
 	end
 
 	local function replaceClassName(instance, InstanceName, ClassName)
@@ -5404,7 +5429,7 @@ local function synsaveinstance(...)
 		local chunks = table.create(1)
 		local savebuffer, savebuffer_size = {}, 1
 		local header =
-			'<!-- Saved by UniversalSynSaveInstance (Join to Copy Games) https://discord.gg/wx4ThpAsmw --><roblox version="4">'
+			'<roblox version="4">'
 		local refs = ctx.refs
 
 		local function ReturnProperty(tag, propertyName, value)
@@ -5818,7 +5843,6 @@ local function synsaveinstance(...)
 
 				return table.concat({
 					"--[[\n",
-					"\t\tThank you for using UniversalSynSaveInstance (Join to Copy Games) https://discord.gg/wx4ThpAsmw\n\n",
 					recoveredNote,
 					ghpFailureHeader,
 					binaryNote,
